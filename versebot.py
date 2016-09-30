@@ -172,7 +172,6 @@ def run_daily_verse_bot():
     if not is_section_disabled(section) and is_time_to_post_daily_verse():
         if config.has_option(section, 'channel'):
             channel = config.get(section, 'channel')
-            username, icon_url, icon_emoji = get_username_and_icons(section)
             post_daily_verse(channel, section)
 
 def run_verse_bot(slack_rtm_output):
@@ -255,6 +254,8 @@ def run_command(function, command, values, channel):
             post(section + '\'s username is now _' + ' '.join(values) + '_.')
     elif command == 'icon' and len(values) == 1:
         option = 'icon_emoji' if values[0][0] == ':' and values[0][-1] == ':' else 'icon_url'
+        if option == 'icon_url':
+            values[0] = values[0][1:-1]
         for section in sections:
             config.set(section, option, values[0])
             post(section + ' now has a new icon.')
