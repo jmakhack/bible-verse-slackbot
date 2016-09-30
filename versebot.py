@@ -32,6 +32,8 @@ def make_post(text, channel, section=None):
             slack_client.api_call('chat.postMessage', channel=channel, text=text, as_user=False, username=username, icon_url=icon_url)
         elif username and icon_emoji:
             slack_client.api_call('chat.postMessage', channel=channel, text=text, as_user=False, username=username, icon_emoji=icon_emoji)
+        elif username:
+            slack_client.api_call('chat.postMessage', channel=channel, text=text, as_user=False, username=username)
         elif icon_url:
             slack_client.api_call('chat.postMessage', channel=channel, text=text, as_user=False, icon_url=icon_url)
         elif icon_emoji:
@@ -183,7 +185,6 @@ def run_verse_bot(slack_rtm_output):
     if not is_section_disabled(section):
         ref, channel = parse_for_verses(slack_rtm_output)
         if ref and channel:
-            username, icon_url, icon_emoji = get_username_and_icons(section)
             post_verses(ref, channel, section)
 
 def post_greeting_message(channel, section=None):
@@ -207,6 +208,18 @@ def get_sections_from_function(function):
     sections = {'daily': ('daily_verse',), 'all': ('versebot', 'daily_verse'), None: ('versebot',)}
     return sections[function]
 
+def represents_int(string):
+    """Return True if string represents an integer value.
+
+    Keyword arguments:
+    string -- string to check if int
+    """
+    try:
+        int(string)
+        return True
+    except ValueError:
+        return False
+
 def run_command(function, command, values, channel):
     """Run user inputted command for versebot.
 
@@ -229,7 +242,47 @@ def run_command(function, command, values, channel):
     elif command == 'status':
         for section in sections:
             status = 'disabled' if config.getint(section, 'disabled') else 'enabled'
-            post(section + ' is currently ' + status)
+            post(section + ' is currently ' + status + '.')
+    elif command == 'reset':
+        for section in sections:
+            config.remove_section(section)
+            config.add_section(section)
+            config.set(section, 'disabled', '1')
+            post(section + ' has been reset.')
+    elif command == 'username' and len(values):
+        for section in sections:
+            config.set(section, 'username', ' '.join(values))
+            post(section + '\'s username is now _' + ' '.join(values) + '_.')
+    elif command == 'icon' and len(values) == 1:
+        option = 'icon_emoji' if values[0][0] == ':' and values[0][-1] == ':' else 'icon_url'
+        for section in sections:
+            config.set(section, option, values[0])
+            post(section + ' now has a new icon.')
+    elif function == 'daily' and command == 'time' and 0 < len(values) < 4:
+        if len(values) == 1 and ':' in values[0]:
+            values = values[0].split(':')
+        config.set(sections[0], 'hour', values[0] if represents_int(values[0]) else 6)
+        config.set(sections[0], 'minute', values[1] if len(values) > 1 and represents_int(values[1]) else 0)
+        config.set(sections[0], 'second', values[2] if len(values) > 2 and represents_int(values[2]) else 0)
+        hour = str(get_config_time('hour', 24, 6))
+        minute = str(get_config_time('minute', 60))
+        second = str(get_config_time('second', 60))
+        post(sections[0] + '\'s posting time is now ' + hour + ':' + minute + ':' + second + '.')
+    elif function == 'daily' and command == 'channel' and len(values) == 1:
+        if re.match('^<#[A-Z0-9]+\|[a-z0-9_]+>$', values[0]):
+            values[0] = '#' + values[0].split('|')[-1][:-1]
+        if values[0][0] != '#':
+            values[0] = '#' + values[0]
+        config.set(sections[0], 'channel', values[0])
+        post(sections[0] + ' will now be posting to _' + values[0] + '_.')
+    elif command == 'debug':
+        for section in config.sections():
+            if section == 'slack':
+                continue
+            post('[' + section + ']')
+            for item in config.items(section):
+                post(item[0] + ' = ' + item[1])
+            post(' ')
     else:
         post('Invalid command received. Type _versebot_ for help.')
     with open('bot.cfg', 'wb') as configfile:
