@@ -17,18 +17,17 @@ if config.has_section('slack') and config.has_option('slack', 'token'):
 else:
     sys.exit('Token is not properly set in configuration file')
 
-#If icon_url and icon_emoji are both supplied, icon_url takes precedence
-def make_post(text, channel, username=None, icon_url=None, icon_emoji=None):
+def make_post(text, channel, section=None):
     """Makes a post message API call to the slack client with given arguments.
 
     Keyword arguments:
     text -- the text to post as a message
     channel -- the channel to post this text to
-    username -- the name that this message is to be posted under (default None)
-    icon_url -- url to an image to be used as the icon (default None)
-    icon_emoji -- emoji to be used as the icon (default None)
+    section -- name of config section to get from (default None)
     """
+    username, icon_url, icon_emoji = get_username_and_icons(section)
     try:
+        #If icon_url and icon_emoji are both supplied, icon_url takes precedence
         if username and icon_url:
             slack_client.api_call('chat.postMessage', channel=channel, text=text, as_user=False, username=username, icon_url=icon_url)
         elif username and icon_emoji:
@@ -66,31 +65,27 @@ def is_time_to_post_daily_verse():
     is_second = time.second == get_config_time('second', 60)
     return is_hour and is_minute and is_second
 
-def post_daily_verse(channel, username=None, icon_url=None, icon_emoji=None):
+def post_daily_verse(channel, section):
     """Retrieve the text for the daily verse and post it.
 
     Keyword arguments:
     channel -- the channel to post this text to
-    username -- the name that this message is to be posted under (default None)
-    icon_url -- url to an image to be used as the icon (default None)
-    icon_emoji -- emoji to be used as the icon (default None)
+    section -- name of config section to get from
     """
     api_url = 'http://www.esvapi.org/v2/rest/dailyVerse?key=IP&output-format=plain-text&include-footnotes=0' \
         '&include-short-copyright=0&include-passage-horizontal-lines=0&include-heading-horizontal-lines=0' \
         '&include-headings=0&include-subheadings=0&include-selahs=0&include-content-type=0&line-length=0' \
         '&include-verse-numbers=0&include-first-verse-numbers=0'
     text = urllib2.urlopen(api_url).read()
-    make_post(text, channel, username, icon_url, icon_emoji)
+    make_post(text, channel, section)
 
-def post_verses(ref, channel, username=None, icon_url=None, icon_emoji=None):
+def post_verses(ref, channel, section):
     """Retrieve the text for the user requested verses and post it if found.
 
     Keyword arguments:
     ref -- the string reference to the requested verses
     channel -- the channel to post this text to
-    username -- the name that this message is to be posted under (default None)
-    icon_url -- url to an image to be used as the icon (default None)
-    icon_emoji -- emoji to be used as the icon (default None)
+    section -- name of config section to get from
     """
     api_url = 'http://www.esvapi.org/v2/rest/passageQuery?key=IP&include-passage-references=1' \
         '&output-format=plain-text&include-footnotes=0&include-short-copyright=0' \
@@ -99,7 +94,7 @@ def post_verses(ref, channel, username=None, icon_url=None, icon_emoji=None):
         '&include-verse-numbers=0&include-first-verse-numbers=0&passage=' + ref
     text = urllib2.urlopen(api_url).read()
     if 'ERROR' not in text and '<html>' not in text:
-        make_post(text, channel, username, icon_url, icon_emoji)
+        make_post(text, channel, section)
 
 def get_ref_in_text(text):
     """Return the reference to the user requested verses if found.
@@ -127,7 +122,7 @@ def is_user_bot(output):
     """
     return 'bot_id' in output
 
-def parse_slack_output(slack_rtm_output):
+def parse_for_verses(slack_rtm_output):
     """Return verse reference and channel in latest messages if found.
 
     Keyword agruments:
@@ -160,35 +155,121 @@ def get_username_and_icons(section):
     Keyword arguments:
     section -- name of config section to get from
     """
+    if not section or not config.has_section(section):
+        return None, None, None
     username = None if not config.has_option(section, 'username') else config.get(section, 'username')
     icon_url = None if not config.has_option(section, 'icon_url') else config.get(section, 'icon_url')
-    icon_emoji = None if not config.has_option(section, 'icon_emoji') or config.has_option(section, 'icon_url') else config.get(section, 'icon_emoji')
+    icon_emoji = None if not config.has_option(section, 'icon_emoji') else config.get(section, 'icon_emoji')
     if icon_emoji and icon_emoji[0] + icon_emoji[-1] != '::':
         icon_emoji = ':' + icon_emoji + ':'
     return username, icon_url, icon_emoji
 
 def run_daily_verse_bot():
     """Run logic for versebot posting a daily verse if enabled."""
-    if not is_section_disabled('daily_verse') and is_time_to_post_daily_verse():
-        if config.has_option('daily_verse', 'channel'):
-            channel = config.get('daily_verse', 'channel')
-            username, icon_url, icon_emoji = get_username_and_icons('daily_verse')
-            post_daily_verse(channel, username, icon_url, icon_emoji)
+    section = 'daily_verse'
+    if not is_section_disabled(section) and is_time_to_post_daily_verse():
+        if config.has_option(section, 'channel'):
+            channel = config.get(section, 'channel')
+            username, icon_url, icon_emoji = get_username_and_icons(section)
+            post_daily_verse(channel, section)
 
-def run_verse_bot():
-    """Run logic for versebot parsing user input to check for verse posting requests"""
-    if not is_section_disabled('versebot'):
-        ref, channel = parse_slack_output(slack_client.rtm_read())
+def run_verse_bot(slack_rtm_output):
+    """Run logic for versebot parsing user input to check for verse posting requests
+
+    Keyword arguments:
+    slack_rtm_output -- output read from slack client
+    """
+    section = 'versebot'
+    if not is_section_disabled(section):
+        ref, channel = parse_for_verses(slack_rtm_output)
         if ref and channel:
-            username, icon_url, icon_emoji = get_username_and_icons('versebot')
-            post_verses(ref, channel, username, icon_url, icon_emoji)
+            username, icon_url, icon_emoji = get_username_and_icons(section)
+            post_verses(ref, channel, section)
+
+def post_greeting_message(channel, section=None):
+    """Post greeting message when versebot is triggered.
+
+    Keyword arguments:
+    channel -- the channel to post this text to
+    section -- name of config section to get from (default None)
+    """
+    post = lambda x: make_post(x, channel, section)
+    post('Greetings! I am versebot, your ESV Bible verse Slack assistant! :smiley:')
+    post('Current version: versebot 1.0.0')
+    post('If you need help, you can review the online documentation located <https://github.com/himsoncafe/versebot/blob/master/README.md|here>!')
+
+def get_sections_from_function(function):
+    """Return tuple of applicable conf sections given the inputted function.
+
+    Keyword arguments:
+    function -- the function of the bot that the command applies to
+    """
+    sections = {'daily': ('daily_verse',), 'all': ('versebot', 'daily_verse'), None: ('versebot',)}
+    return sections[function]
+
+def run_command(function, command, values, channel):
+    """Run user inputted command for versebot.
+
+    Keyword arguments:
+    function -- the function of the bot that the command applies to
+    command -- the command to execute
+    values -- any additional values that the command accepts
+    channel -- the channel to post this text to
+    """
+    sections = get_sections_from_function(function)
+    post = lambda x: make_post(x, channel, sections[0])
+    if command == 'enable':
+        for section in sections:
+            config.set(section, 'disabled', '0')
+            post(section + ' has been enabled.')
+    elif command == 'disable':
+        for section in sections:
+            config.set(section, 'disabled', '1')
+            post(section + ' has been disabled.')
+    elif command == 'status':
+        for section in sections:
+            status = 'disabled' if config.getint(section, 'disabled') else 'enabled'
+            post(section + ' is currently ' + status)
+    else:
+        post('Invalid command received. Type _versebot_ for help.')
+    with open('bot.cfg', 'wb') as configfile:
+        config.write(configfile)
+
+def parse_for_commands(slack_rtm_output):
+    """Parse output for commands and run them if found.
+
+    Keyword arguments:
+    slack_rtm_output -- output read from slack client
+    """
+    output_list = slack_rtm_output
+    if output_list and len(output_list) > 0:
+        for output in output_list:
+            if output and 'text' in output and not is_user_bot(output):
+                words = output['text'].split()
+                if words and words[0] == 'versebot':
+                    if len(words) == 1 or words[1] == 'help':
+                        post_greeting_message(output['channel'], 'versebot')
+                    else:
+                        function, command, values = None, None, []
+                        cur_index = 1
+                        if words[cur_index] in ('daily', 'all'):
+                            function = words[cur_index]
+                            cur_index += 1
+                        if cur_index < len(words):
+                            command = words[cur_index]
+                            cur_index += 1
+                        if cur_index < len(words):
+                            values = [word for word in words[cur_index:]]
+                        run_command(function, command, values, output['channel'])
 
 if __name__ == '__main__':
     if slack_client.rtm_connect():
         print 'Versebot connected and running! It\'s time for some Bible verses! :)'
         while True:
+            slack_rtm_output = slack_client.rtm_read()
+            parse_for_commands(slack_rtm_output)
+            run_verse_bot(slack_rtm_output)
             run_daily_verse_bot()
-            run_verse_bot()
             time.sleep(1)
     else:
         sys.exit('Connection failed. Invalid Slack token?')
