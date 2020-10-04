@@ -1,4 +1,4 @@
-# versebot
+# Versebot for Slack
 A Bible verse bot built for [Slack](https://slack.com/) that has actively been in use in several [Slack](https://slack.com/) groups since 2016.  
 All Bible verses are pulled from the [English Standard Version (ESV)](https://www.esv.org/translation/) translation.
 
