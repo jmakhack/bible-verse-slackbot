@@ -5,7 +5,7 @@ All Bible verses are pulled from the [English Standard Version (ESV)](https://ww
 ------
 
 The bot has two main features:  
-1. Posting Bible verses after detecting a Bible verse reference in a [Slack](https://slack.com/) message (e.g. John 3:16-19 or Eph 2:8-9)
+1. Posting Bible verses after detecting a Bible verse reference in a [Slack](https://slack.com/) message (e.g. John 3:16-19 or Eph 2:8)
 2. Posting a scheduled daily Bible verse to a specified [Slack](https://slack.com/) channel
 
 ------
